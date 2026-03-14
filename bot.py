@@ -40,22 +40,40 @@ def translate_arabic(text: str) -> dict:
     return {"urdu": urdu, "english": english}
 
 async def extract_text_from_image(image_url: str) -> str:
-    payload = {
-        "url": image_url,
-        "apikey": OCR_API_KEY,
-        "language": "ara",
-        "isOverlayRequired": False,
-        "detectOrientation": True,
-        "scale": True,
-        "OCREngine": 2
-    }
-    async with aiohttp.ClientSession() as session:
-        async with session.post("https://api.ocr.space/parse/image", data=payload) as resp:
-            data = await resp.json()
-    try:
-        return data["ParsedResults"][0]["ParsedText"].strip()
-    except (KeyError, IndexError):
-        return ""
+    """Try multiple OCR engines to get best result."""
+
+    # Try Engine 2 first (better for Arabic)
+    for engine in [2, 1]:
+        payload = {
+            "url": image_url,
+            "apikey": OCR_API_KEY,
+            "language": "ara",
+            "isOverlayRequired": False,
+            "detectOrientation": True,
+            "scale": True,
+            "isTable": False,
+            "OCREngine": engine,
+            "filetype": "Auto"
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.ocr.space/parse/image",
+                data=payload,
+                headers={"apikey": OCR_API_KEY}
+            ) as resp:
+                data = await resp.json()
+
+        try:
+            result = data["ParsedResults"][0]["ParsedText"].strip()
+            error_msg = data["ParsedResults"][0].get("ErrorMessage", "")
+            print(f"Engine {engine} result: '{result[:100]}' | Error: {error_msg}")
+            if result:
+                return result
+        except (KeyError, IndexError) as e:
+            print(f"Engine {engine} failed: {e} | Response: {data}")
+            continue
+
+    return ""
 
 def build_embed(original: str, translations: dict, source: str = "text") -> discord.Embed:
     embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
@@ -97,7 +115,10 @@ async def on_message(message: discord.Message):
                 await message.remove_reaction("⏳", bot.user)
 
                 if not extracted:
-                    await message.reply("🖼️ No text found in image.")
+                    await message.reply(
+                        "🖼️ Could not extract text from image.\n"
+                        "**Tips:** Make sure the image is clear, high resolution, and contains Arabic text."
+                    )
                     continue
 
                 if contains_arabic(extracted):
@@ -105,7 +126,9 @@ async def on_message(message: discord.Message):
                     embed = build_embed(extracted, translations, source="image (OCR.space)")
                     await message.reply(embed=embed)
                 else:
-                    await message.reply(f"🖼️ Text extracted but no Arabic found:\n```{extracted[:500]}```")
+                    await message.reply(
+                        f"🖼️ Text extracted but no Arabic found:\n```{extracted[:500]}```"
+                    )
             except Exception as e:
                 await message.reply(f"⚠️ Image processing error: {e}")
 
