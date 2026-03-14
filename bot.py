@@ -8,6 +8,20 @@ from PIL import Image
 import aiohttp
 import io
 import re
+from flask import Flask
+from threading import Thread
+
+# ── Keep-alive server (prevents Render from sleeping) ────────────────────────
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive! 🤖"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
+
+Thread(target=run_flask, daemon=True).start()
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
