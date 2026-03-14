@@ -10,6 +10,19 @@ import io
 import re
 from flask import Flask
 from threading import Thread
+import subprocess
+
+# ── Auto-install Tesseract if not found ──────────────────────────────────────
+try:
+    subprocess.run(['tesseract', '--version'], capture_output=True, check=True)
+    print("✅ Tesseract already installed")
+except (FileNotFoundError, subprocess.CalledProcessError):
+    print("⚙️ Installing Tesseract...")
+    os.system('apt-get install -y tesseract-ocr tesseract-ocr-ara tesseract-ocr-urd')
+    print("✅ Tesseract installed")
+
+# Set tesseract path explicitly for Linux/Render
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 
 # ── Keep-alive server (prevents Render from sleeping) ────────────────────────
 app = Flask('')
@@ -135,5 +148,3 @@ async def ping(ctx):
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     bot.run(TOKEN)
-
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
