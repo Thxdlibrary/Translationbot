@@ -135,3 +135,5 @@ async def ping(ctx):
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     bot.run(TOKEN)
+
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
