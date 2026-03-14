@@ -1,6 +1,8 @@
 discord.py
 deep-translator==1.11.4
 pytesseract==0.3.13
-Pillow==11.3.0
+Pillow==11.1.0
 aiohttp==3.9.5
 python-dotenv==1.0.1
+flask==3.0.3
+ 
