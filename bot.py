@@ -3,28 +3,12 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 from deep_translator import GoogleTranslator
-import pytesseract
-from PIL import Image
 import aiohttp
-import io
 import re
 from flask import Flask
 from threading import Thread
-import subprocess
 
-# ── Auto-install Tesseract if not found ──────────────────────────────────────
-try:
-    subprocess.run(['tesseract', '--version'], capture_output=True, check=True)
-    print("✅ Tesseract already installed")
-except (FileNotFoundError, subprocess.CalledProcessError):
-    print("⚙️ Installing Tesseract...")
-    os.system('apt-get install -y tesseract-ocr tesseract-ocr-ara tesseract-ocr-urd')
-    print("✅ Tesseract installed")
-
-# Set tesseract path explicitly for Linux/Render
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-
-# ── Keep-alive server (prevents Render from sleeping) ────────────────────────
+# ── Keep-alive server ────────────────────────────────────────────────────────
 app = Flask('')
 
 @app.route('/')
@@ -38,57 +22,61 @@ Thread(target=run_flask, daemon=True).start()
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+OCR_API_KEY = os.getenv("OCR_API_KEY")
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def contains_arabic(text: str) -> bool:
-    """Return True if the string contains Arabic characters."""
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
 def translate_arabic(text: str) -> dict:
-    """Translate Arabic text to both Urdu and English."""
-    urdu   = GoogleTranslator(source='ar', target='ur').translate(text)
+    urdu    = GoogleTranslator(source='ar', target='ur').translate(text)
     english = GoogleTranslator(source='ar', target='en').translate(text)
     return {"urdu": urdu, "english": english}
 
-async def extract_text_from_image(image_bytes: bytes) -> str:
-    """Run OCR on image bytes and return extracted text."""
-    image = Image.open(io.BytesIO(image_bytes))
-    # Use Arabic + Urdu + English language data for Tesseract
-    text = pytesseract.image_to_string(image, lang='ara+urd+eng')
-    return text.strip()
+async def extract_text_from_image(image_url: str) -> str:
+    payload = {
+        "url": image_url,
+        "apikey": OCR_API_KEY,
+        "language": "ara",
+        "isOverlayRequired": False,
+        "detectOrientation": True,
+        "scale": True,
+        "OCREngine": 2
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post("https://api.ocr.space/parse/image", data=payload) as resp:
+            data = await resp.json()
+    try:
+        return data["ParsedResults"][0]["ParsedText"].strip()
+    except (KeyError, IndexError):
+        return ""
 
 def build_embed(original: str, translations: dict, source: str = "text") -> discord.Embed:
-    """Build a nicely formatted Discord embed with translations."""
-    embed = discord.Embed(
-        title="🌐 Arabic Translation",
-        color=0x00f3ff
-    )
+    embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
     embed.add_field(name="📝 Original Arabic", value=original[:1024] or "—", inline=False)
     embed.add_field(name="🇵🇰 Urdu",    value=translations["urdu"][:1024]    or "—", inline=False)
     embed.add_field(name="🇬🇧 English", value=translations["english"][:1024] or "—", inline=False)
-    embed.set_footer(text=f"Source: {source} • Powered by Google Translate + Tesseract OCR")
+    embed.set_footer(text=f"Source: {source} • Powered by Google Translate + OCR.space")
     return embed
 
-# ── Events ────────────────────────────────────────────────────────────────────
+# ── Events ───────────────────────────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print("Bot is ready and listening for Arabic text and images.")
+    print("Bot is ready!")
 
 @bot.event
 async def on_message(message: discord.Message):
-    # Ignore the bot's own messages
     if message.author.bot:
         return
 
-    # ── 1. Check plain text for Arabic ───────────────────────────────────────
     if message.content and contains_arabic(message.content):
         try:
             translations = translate_arabic(message.content)
@@ -97,39 +85,36 @@ async def on_message(message: discord.Message):
         except Exception as e:
             await message.reply(f"⚠️ Translation error: {e}")
 
-    # ── 2. Check attached images for Arabic text via OCR ─────────────────────
     for attachment in message.attachments:
         if attachment.content_type and attachment.content_type.startswith("image/"):
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(attachment.url) as resp:
-                        image_bytes = await resp.read()
+                if not OCR_API_KEY:
+                    await message.reply("⚠️ OCR API key not configured.")
+                    continue
 
-                extracted = await extract_text_from_image(image_bytes)
+                await message.add_reaction("⏳")
+                extracted = await extract_text_from_image(attachment.url)
+                await message.remove_reaction("⏳", bot.user)
 
                 if not extracted:
-                    await message.reply("🖼️ I couldn't extract any text from that image.")
+                    await message.reply("🖼️ No text found in image.")
                     continue
 
                 if contains_arabic(extracted):
                     translations = translate_arabic(extracted)
-                    embed = build_embed(extracted, translations, source="image (OCR)")
+                    embed = build_embed(extracted, translations, source="image (OCR.space)")
                     await message.reply(embed=embed)
                 else:
-                    await message.reply(
-                        f"🖼️ Image text extracted but no Arabic found:\n```{extracted[:500]}```"
-                    )
+                    await message.reply(f"🖼️ Text extracted but no Arabic found:\n```{extracted[:500]}```")
             except Exception as e:
                 await message.reply(f"⚠️ Image processing error: {e}")
 
-    # Allow commands to still work
     await bot.process_commands(message)
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+# ── Commands ─────────────────────────────────────────────────────────────────
 
 @bot.command(name="translate")
 async def translate_command(ctx, *, text: str):
-    """!translate <arabic text>  –  manually trigger a translation."""
     if not contains_arabic(text):
         await ctx.reply("⚠️ Please provide Arabic text to translate.")
         return
@@ -142,9 +127,7 @@ async def translate_command(ctx, *, text: str):
 
 @bot.command(name="ping")
 async def ping(ctx):
-    """Check if the bot is alive."""
     await ctx.reply(f"🏓 Pong! Latency: {round(bot.latency * 1000)}ms")
 
-# ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     bot.run(TOKEN)
