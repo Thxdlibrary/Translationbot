@@ -41,7 +41,7 @@ def contains_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
 async def ask_llama(prompt: str, retries: int = 3) -> str:
-    """Send request to OpenRouter for translation."""
+    """Send request to OpenRouter."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -53,12 +53,9 @@ async def ask_llama(prompt: str, retries: int = 3) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Arabic translator. Translate Arabic text to Urdu and English accurately and completely."
+                "content": "You are a professional Arabic translator. Translate accurately and completely without skipping any text."
             },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "user", "content": prompt}
         ],
         "max_tokens": 4000
     }
@@ -71,7 +68,6 @@ async def ask_llama(prompt: str, retries: int = 3) -> str:
 
             if "error" in data:
                 error_msg = data["error"].get("message", "Unknown error")
-                print(f"OpenRouter error (attempt {attempt+1}): {error_msg}")
                 if "rate" in error_msg.lower():
                     await asyncio.sleep(10)
                     continue
@@ -86,7 +82,7 @@ async def ask_llama(prompt: str, retries: int = 3) -> str:
     return "FAILED"
 
 async def extract_arabic_from_image(image_bytes: bytes, mime_type: str) -> str:
-    """Use Gemini ONLY to extract Arabic text from image."""
+    """Use Gemini to extract Arabic text from image."""
     image_b64 = base64.b64encode(image_bytes).decode('utf-8')
     prompt = """Extract all Arabic text from this image exactly as written.
 Return ONLY the extracted Arabic text, nothing else.
@@ -113,22 +109,33 @@ If no Arabic text found, return: NONE"""
         print(f"Gemini error: {e} | Response: {data}")
         return ""
 
-async def translate_text(arabic_text: str) -> dict:
-    """Translate Arabic text to Urdu and English."""
-    prompt = f"""Translate the COMPLETE Arabic text below to both Urdu and English.
+async def translate_to_language(arabic_text: str, language: str) -> str:
+    """Translate Arabic text to a specific language."""
+    prompt = f"""Translate the COMPLETE Arabic text below to {language}.
 Do not skip or truncate any part of the text.
+Return ONLY the {language} translation, nothing else.
+
+Arabic text:
+{arabic_text}"""
+
+    return await ask_llama(prompt)
+
+async def translate_both(arabic_text: str) -> dict:
+    """Translate Arabic to both Urdu and English."""
+    prompt = f"""Translate the COMPLETE Arabic text below to both Urdu and English.
+Do not skip or truncate any part.
 
 Arabic text:
 {arabic_text}
 
 Respond in EXACTLY this format:
-URDU: [complete urdu translation here]
-ENGLISH: [complete english translation here]"""
+URDU: [complete urdu translation]
+ENGLISH: [complete english translation]"""
 
     response = await ask_llama(prompt)
-    return parse_response(response)
+    return parse_both(response)
 
-def parse_response(text: str) -> dict:
+def parse_both(text: str) -> dict:
     result = {"urdu": "", "english": ""}
     if text in ["FAILED"] or text.startswith("ERROR:"):
         result["urdu"] = text
@@ -144,23 +151,35 @@ def parse_response(text: str) -> dict:
 
     if not result["urdu"] and not result["english"]:
         result["english"] = text[:500]
-        result["urdu"] = "Could not parse response"
+        result["urdu"] = "Could not parse"
 
     return result
 
 def add_long_field(embed: discord.Embed, name: str, value: str):
     chunks = [value[i:i+1024] for i in range(0, len(value), 1024)]
     for i, chunk in enumerate(chunks):
-        field_name = name if i == 0 else f"{name} (cont.)"
-        embed.add_field(name=field_name, value=chunk, inline=False)
+        embed.add_field(name=name if i == 0 else f"{name} (cont.)", value=chunk, inline=False)
 
-def build_embed(original: str, translations: dict, source: str = "text") -> discord.Embed:
-    embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
-    add_long_field(embed, "📝 Original Arabic", original or "—")
-    add_long_field(embed, "🇵🇰 Urdu", translations["urdu"] or "—")
-    add_long_field(embed, "🇬🇧 English", translations["english"] or "—")
-    embed.set_footer(text=f"Source: {source} • Gemini OCR + OpenRouter Llama 🦙")
-    return embed
+async def get_image_arabic(ctx) -> str:
+    """Download image and extract Arabic text using Gemini."""
+    attachment = ctx.message.attachments[0]
+    if not attachment.content_type or not attachment.content_type.startswith("image/"):
+        await ctx.reply("⚠️ Please attach a valid image.")
+        return None
+
+    await ctx.message.add_reaction("⏳")
+    async with aiohttp.ClientSession() as session:
+        async with session.get(attachment.url) as resp:
+            image_bytes = await resp.read()
+
+    extracted = await extract_arabic_from_image(image_bytes, attachment.content_type)
+    await ctx.message.remove_reaction("⏳", bot.user)
+
+    if not extracted or extracted.upper() == "NONE":
+        await ctx.reply("🖼️ No Arabic text found in this image.")
+        return None
+
+    return extracted
 
 # ── Events ───────────────────────────────────────────────────────────────────
 
@@ -171,86 +190,180 @@ async def on_ready():
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
-@bot.command(name="translate", aliases=["t", "tr"])
-async def translate_command(ctx, *, text: str = None):
-    """
-    !translate <arabic text>  — translate Arabic text
-    !translate (with image)   — translate Arabic text from image
-    """
+@bot.command(name="urdu", aliases=["u", "ur"])
+async def translate_urdu(ctx, *, text: str = None):
+    """!urdu <arabic text> OR !urdu + image — translate to Urdu only"""
 
-    # ── Case 1: Image attached ────────────────────────────────────────────────
+    # Image mode
     if ctx.message.attachments:
-        attachment = ctx.message.attachments[0]
-        if not attachment.content_type or not attachment.content_type.startswith("image/"):
-            await ctx.reply("⚠️ Please attach an image containing Arabic text.")
+        arabic = await get_image_arabic(ctx)
+        if not arabic:
             return
-        try:
-            await ctx.message.add_reaction("⏳")
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(attachment.url) as resp:
-                    image_bytes = await resp.read()
-
-            # Gemini extracts Arabic text
-            extracted = await extract_arabic_from_image(image_bytes, attachment.content_type)
-            print(f"Extracted: {extracted[:100]}")
-
-            if not extracted or extracted.upper() == "NONE":
-                await ctx.message.remove_reaction("⏳", bot.user)
-                await ctx.reply("🖼️ No Arabic text found in this image.")
-                return
-
-            # OpenRouter translates
-            async with ctx.typing():
-                translations = await translate_text(extracted)
-
-            await ctx.message.remove_reaction("⏳", bot.user)
-            embed = build_embed(extracted, translations, source="image (Gemini OCR + Llama)")
-            await ctx.reply(embed=embed)
-
-        except Exception as e:
-            await ctx.reply(f"⚠️ Image error: {e}")
+        async with ctx.typing():
+            translation = await translate_to_language(arabic, "Urdu")
+        embed = discord.Embed(title="🇵🇰 Urdu Translation", color=0x00f3ff)
+        add_long_field(embed, "📝 Original Arabic", arabic)
+        add_long_field(embed, "🇵🇰 Urdu", translation)
+        embed.set_footer(text="Gemini OCR + OpenRouter Llama 🦙")
+        await ctx.reply(embed=embed)
         return
 
-    # ── Case 2: Text provided ─────────────────────────────────────────────────
+    # Text mode
+    if not text:
+        await ctx.reply("**Usage:** `!urdu <arabic text>` or attach image + `!urdu`")
+        return
+    if not contains_arabic(text):
+        await ctx.reply("⚠️ Please provide Arabic text.")
+        return
+
+    async with ctx.typing():
+        translation = await translate_to_language(text, "Urdu")
+
+    embed = discord.Embed(title="🇵🇰 Urdu Translation", color=0x00f3ff)
+    add_long_field(embed, "📝 Original Arabic", text)
+    add_long_field(embed, "🇵🇰 Urdu", translation)
+    embed.set_footer(text="Powered by OpenRouter Llama 🦙")
+    await ctx.reply(embed=embed)
+
+@bot.command(name="english", aliases=["e", "en"])
+async def translate_english(ctx, *, text: str = None):
+    """!english <arabic text> OR !english + image — translate to English only"""
+
+    # Image mode
+    if ctx.message.attachments:
+        arabic = await get_image_arabic(ctx)
+        if not arabic:
+            return
+        async with ctx.typing():
+            translation = await translate_to_language(arabic, "English")
+        embed = discord.Embed(title="🇬🇧 English Translation", color=0x00f3ff)
+        add_long_field(embed, "📝 Original Arabic", arabic)
+        add_long_field(embed, "🇬🇧 English", translation)
+        embed.set_footer(text="Gemini OCR + OpenRouter Llama 🦙")
+        await ctx.reply(embed=embed)
+        return
+
+    # Text mode
+    if not text:
+        await ctx.reply("**Usage:** `!english <arabic text>` or attach image + `!english`")
+        return
+    if not contains_arabic(text):
+        await ctx.reply("⚠️ Please provide Arabic text.")
+        return
+
+    async with ctx.typing():
+        translation = await translate_to_language(text, "English")
+
+    embed = discord.Embed(title="🇬🇧 English Translation", color=0x00f3ff)
+    add_long_field(embed, "📝 Original Arabic", text)
+    add_long_field(embed, "🇬🇧 English", translation)
+    embed.set_footer(text="Powered by OpenRouter Llama 🦙")
+    await ctx.reply(embed=embed)
+
+@bot.command(name="translate", aliases=["t", "tr", "both", "b"])
+async def translate_both_command(ctx, *, text: str = None):
+    """!translate <arabic text> OR !translate + image — translate to both Urdu and English"""
+
+    # Image mode
+    if ctx.message.attachments:
+        arabic = await get_image_arabic(ctx)
+        if not arabic:
+            return
+        async with ctx.typing():
+            translations = await translate_both(arabic)
+        embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
+        add_long_field(embed, "📝 Original Arabic", arabic)
+        add_long_field(embed, "🇵🇰 Urdu", translations["urdu"])
+        add_long_field(embed, "🇬🇧 English", translations["english"])
+        embed.set_footer(text="Gemini OCR + OpenRouter Llama 🦙")
+        await ctx.reply(embed=embed)
+        return
+
+    # Text mode
     if not text:
         await ctx.reply(
-            "**How to use:**\n"
-            "📝 Text: `!translate <arabic text>`\n"
-            "🖼️ Image: attach image + type `!translate`\n"
-            "⚡ Shortcut: `!t` or `!tr`"
+            "**📖 How to use Translation Bot:**\n\n"
+            "**Translate to Urdu only:**\n"
+            "`!urdu <arabic text>` or `!u <arabic text>`\n"
+            "or attach image + `!urdu`\n\n"
+            "**Translate to English only:**\n"
+            "`!english <arabic text>` or `!e <arabic text>`\n"
+            "or attach image + `!english`\n\n"
+            "**Translate to Both:**\n"
+            "`!translate <arabic text>` or `!t <arabic text>`\n"
+            "or attach image + `!translate`\n\n"
+            "**Check bot status:** `!ping`"
         )
         return
 
     if not contains_arabic(text):
-        await ctx.reply("⚠️ Please provide Arabic text to translate.")
+        await ctx.reply("⚠️ Please provide Arabic text.")
         return
 
-    try:
-        async with ctx.typing():
-            translations = await translate_text(text)
-        embed = build_embed(text, translations, source="text")
-        await ctx.reply(embed=embed)
-    except Exception as e:
-        await ctx.reply(f"⚠️ Error: {e}")
+    async with ctx.typing():
+        translations = await translate_both(text)
+
+    embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
+    add_long_field(embed, "📝 Original Arabic", text)
+    add_long_field(embed, "🇵🇰 Urdu", translations["urdu"])
+    add_long_field(embed, "🇬🇧 English", translations["english"])
+    embed.set_footer(text="Powered by OpenRouter Llama 🦙")
+    await ctx.reply(embed=embed)
 
 @bot.command(name="ping")
-async def ping(ctx):
-    """Check if bot is alive."""
-    await ctx.reply(f"🏓 Pong! Latency: {round(bot.latency * 1000)}ms")
+async def guide(ctx):
+    """Show full guide of all commands."""
+    embed = discord.Embed(
+        title="📖 Translation Bot — Full Guide",
+        description="This bot translates Arabic text and images to Urdu and/or English.",
+        color=0x00f3ff
+    )
 
-@bot.command(name="help_translate", aliases=["ht"])
-async def help_translate(ctx):
-    """Show how to use the bot."""
-    embed = discord.Embed(title="🤖 Translation Bot Help", color=0x00f3ff)
     embed.add_field(
-        name="📝 Translate Text",
-        value="`!translate <arabic text>`\n`!t <arabic text>`",
+        name="━━━━━━━━━━━━━━━━━━━━",
+        value="**📝 TEXT TRANSLATION**",
         inline=False
     )
     embed.add_field(
-        name="🖼️ Translate Image",
-        value="Attach an image + type `!translate`\nor `!t`",
+        name="🇵🇰 Translate to Urdu only",
+        value="`!urdu <arabic text>`\n`!u <arabic text>`\nExample: `!urdu مرحبا`",
+        inline=False
+    )
+    embed.add_field(
+        name="🇬🇧 Translate to English only",
+        value="`!english <arabic text>`\n`!e <arabic text>`\nExample: `!english مرحبا`",
+        inline=False
+    )
+    embed.add_field(
+        name="🌐 Translate to Both",
+        value="`!translate <arabic text>`\n`!t <arabic text>`\nExample: `!translate مرحبا`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="━━━━━━━━━━━━━━━━━━━━",
+        value="**🖼️ IMAGE TRANSLATION**",
+        inline=False
+    )
+    embed.add_field(
+        name="🇵🇰 Image → Urdu only",
+        value="Attach image + type `!urdu` or `!u`",
+        inline=False
+    )
+    embed.add_field(
+        name="🇬🇧 Image → English only",
+        value="Attach image + type `!english` or `!e`",
+        inline=False
+    )
+    embed.add_field(
+        name="🌐 Image → Both",
+        value="Attach image + type `!translate` or `!t`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="━━━━━━━━━━━━━━━━━━━━",
+        value="**⚙️ OTHER COMMANDS**",
         inline=False
     )
     embed.add_field(
@@ -258,8 +371,18 @@ async def help_translate(ctx):
         value="`!ping`",
         inline=False
     )
+    embed.add_field(
+        name="📖 Show This Guide",
+        value="`!guide` or `!help` or `!h`",
+        inline=False
+    )
+
     embed.set_footer(text="Powered by Gemini OCR + OpenRouter Llama 🦙")
     await ctx.reply(embed=embed)
+
+@bot.command(name="ping")
+async def ping(ctx):
+    await ctx.reply(f"🏓 Pong! Latency: {round(bot.latency * 1000)}ms")
 
 if __name__ == "__main__":
     bot.run(TOKEN)
