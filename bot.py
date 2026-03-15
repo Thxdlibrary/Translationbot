@@ -93,14 +93,16 @@ async def ask_llama(prompt: str, retries: int = 3) -> str:
     return "FAILED"
 
 async def translate_text(arabic_text: str) -> dict:
-    """Translate Arabic text to Urdu and English."""
-    prompt = f"""Translate this Arabic text to both Urdu and English.
+    """Translate Arabic text to Urdu and English — handles long texts."""
+    prompt = f"""Translate the COMPLETE Arabic text below to both Urdu and English.
+Do not skip or truncate any part of the text.
 
-Arabic text: {arabic_text}
+Arabic text:
+{arabic_text}
 
 Respond in EXACTLY this format:
-URDU: [urdu translation here]
-ENGLISH: [english translation here]"""
+URDU: [complete urdu translation here]
+ENGLISH: [complete english translation here]"""
 
     response = await ask_llama(prompt)
     return parse_response(response)
@@ -128,11 +130,18 @@ def parse_response(text: str) -> dict:
 
     return result
 
+def add_long_field(embed: discord.Embed, name: str, value: str):
+    """Add a field to embed, splitting into multiple fields if too long."""
+    chunks = [value[i:i+1024] for i in range(0, len(value), 1024)]
+    for i, chunk in enumerate(chunks):
+        field_name = name if i == 0 else f"{name} (cont.)"
+        embed.add_field(name=field_name, value=chunk, inline=False)
+
 def build_embed(original: str, translations: dict) -> discord.Embed:
     embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
-    embed.add_field(name="📝 Original Arabic", value=original[:1024] or "—", inline=False)
-    embed.add_field(name="🇵🇰 Urdu",    value=translations["urdu"][:1024]    or "—", inline=False)
-    embed.add_field(name="🇬🇧 English", value=translations["english"][:1024] or "—", inline=False)
+    add_long_field(embed, "📝 Original Arabic", original or "—")
+    add_long_field(embed, "🇵🇰 Urdu",    translations["urdu"]    or "—")
+    add_long_field(embed, "🇬🇧 English", translations["english"] or "—")
     embed.set_footer(text="Powered by Llama 3.3 70B via OpenRouter 🦙")
     return embed
 
