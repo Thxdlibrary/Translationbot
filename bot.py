@@ -23,9 +23,10 @@ Thread(target=run_flask, daemon=True).start()
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -37,49 +38,62 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def contains_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-async def ask_gemini(prompt: str, image_bytes: bytes = None, mime_type: str = None, retries: int = 3) -> str:
-    """Send ONE request to Gemini with automatic retry on rate limit."""
-    parts = []
+async def ask_llama(prompt: str, retries: int = 3) -> str:
+    """Send request to OpenRouter Llama 3.3 70B."""
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://discord-translation-bot.com",
+        "X-Title": "Arabic Translation Bot"
+    }
 
-    if image_bytes:
-        parts.append({
-            "inline_data": {
-                "mime_type": mime_type,
-                "data": base64.b64encode(image_bytes).decode('utf-8')
+    payload = {
+        "model": MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a professional Arabic translator. You translate Arabic text to Urdu and English accurately."
+            },
+            {
+                "role": "user",
+                "content": prompt
             }
-        })
-
-    parts.append({"text": prompt})
-    payload = {"contents": [{"parts": parts}]}
+        ],
+        "max_tokens": 2000
+    }
 
     for attempt in range(retries):
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-                json=payload
-            ) as resp:
-                data = await resp.json()
-
-        # Check for rate limit error
-        if "error" in data:
-            error_msg = data["error"].get("message", "")
-            print(f"Gemini error (attempt {attempt+1}): {error_msg}")
-            if "quota" in error_msg.lower() or "rate" in error_msg.lower():
-                wait_time = 15 * (attempt + 1)  # wait 15s, 30s, 45s
-                print(f"Rate limited. Waiting {wait_time}s...")
-                await asyncio.sleep(wait_time)
-                continue
-            return f"ERROR: {error_msg}"
-
         try:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            return "FAILED"
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    OPENROUTER_URL,
+                    headers=headers,
+                    json=payload
+                ) as resp:
+                    data = await resp.json()
 
-    return "RATE_LIMIT"
+            print(f"OpenRouter response: {data}")
+
+            # Check for errors
+            if "error" in data:
+                error_msg = data["error"].get("message", "Unknown error")
+                print(f"Error (attempt {attempt+1}): {error_msg}")
+                if "rate" in error_msg.lower():
+                    await asyncio.sleep(10)
+                    continue
+                return f"ERROR: {error_msg}"
+
+            return data["choices"][0]["message"]["content"]
+
+        except Exception as e:
+            print(f"Exception (attempt {attempt+1}): {e}")
+            await asyncio.sleep(5)
+            continue
+
+    return "FAILED"
 
 async def translate_text(arabic_text: str) -> dict:
-    """Translate Arabic text using ONE Gemini call."""
+    """Translate Arabic text to Urdu and English."""
     prompt = f"""Translate this Arabic text to both Urdu and English.
 
 Arabic text: {arabic_text}
@@ -88,38 +102,21 @@ Respond in EXACTLY this format:
 URDU: [urdu translation here]
 ENGLISH: [english translation here]"""
 
-    response = await ask_gemini(prompt)
+    response = await ask_llama(prompt)
     return parse_response(response)
 
-async def translate_image(image_bytes: bytes, mime_type: str) -> dict:
-    """Extract Arabic from image and translate using ONE Gemini call."""
-    prompt = """Extract any Arabic text from this image and translate it to Urdu and English.
-
-Respond in EXACTLY this format:
-ARABIC: [extracted arabic text, or NONE if no arabic found]
-URDU: [urdu translation, or NONE]
-ENGLISH: [english translation, or NONE]"""
-
-    response = await ask_gemini(prompt, image_bytes, mime_type)
-    return parse_response(response, include_arabic=True)
-
-def parse_response(text: str, include_arabic: bool = False) -> dict:
-    """Parse Gemini response into structured dict."""
+def parse_response(text: str) -> dict:
+    """Parse response into structured dict."""
     result = {"urdu": "", "english": ""}
-    if include_arabic:
-        result["arabic"] = ""
 
-    if text in ["FAILED", "RATE_LIMIT"] or text.startswith("ERROR:"):
-        msg = "⏳ Rate limit reached, please try again in 30 seconds." if text == "RATE_LIMIT" else text
-        result["urdu"] = msg
-        result["english"] = msg
+    if text in ["FAILED"] or text.startswith("ERROR:"):
+        result["urdu"] = text
+        result["english"] = text
         return result
 
     for line in text.strip().split('\n'):
         line = line.strip()
-        if line.upper().startswith("ARABIC:"):
-            result["arabic"] = line[7:].strip()
-        elif line.upper().startswith("URDU:"):
+        if line.upper().startswith("URDU:"):
             result["urdu"] = line[5:].strip()
         elif line.upper().startswith("ENGLISH:"):
             result["english"] = line[8:].strip()
@@ -127,19 +124,16 @@ def parse_response(text: str, include_arabic: bool = False) -> dict:
     # Fallback if parsing fails
     if not result["urdu"] and not result["english"]:
         result["english"] = text[:500]
-        result["urdu"] = "Could not parse"
+        result["urdu"] = "Could not parse response"
 
     return result
 
-def build_embed(original: str, translations: dict, is_image: bool = False) -> discord.Embed:
+def build_embed(original: str, translations: dict) -> discord.Embed:
     embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
-    if is_image and translations.get("arabic"):
-        embed.add_field(name="📝 Extracted Arabic", value=translations["arabic"][:1024] or "—", inline=False)
-    else:
-        embed.add_field(name="📝 Original Arabic", value=original[:1024] or "—", inline=False)
+    embed.add_field(name="📝 Original Arabic", value=original[:1024] or "—", inline=False)
     embed.add_field(name="🇵🇰 Urdu",    value=translations["urdu"][:1024]    or "—", inline=False)
     embed.add_field(name="🇬🇧 English", value=translations["english"][:1024] or "—", inline=False)
-    embed.set_footer(text="Powered by Google Gemini 2.0 Flash ✨")
+    embed.set_footer(text="Powered by Llama 3.3 70B via OpenRouter 🦙")
     return embed
 
 # ── Events ───────────────────────────────────────────────────────────────────
@@ -147,7 +141,7 @@ def build_embed(original: str, translations: dict, is_image: bool = False) -> di
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print(f"Gemini API Key: {'✅ Loaded' if GEMINI_API_KEY else '❌ MISSING'}")
+    print(f"OpenRouter API Key: {'✅ Loaded' if OPENROUTER_API_KEY else '❌ MISSING'}")
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -163,25 +157,13 @@ async def on_message(message: discord.Message):
         except Exception as e:
             await message.reply(f"⚠️ Error: {e}")
 
+    # Image handling — ask user to copy text for now
     for attachment in message.attachments:
         if attachment.content_type and attachment.content_type.startswith("image/"):
-            try:
-                await message.add_reaction("⏳")
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(attachment.url) as resp:
-                        image_bytes = await resp.read()
-
-                translations = await translate_image(image_bytes, attachment.content_type)
-                await message.remove_reaction("⏳", bot.user)
-
-                if translations.get("arabic", "").upper() == "NONE":
-                    await message.reply("🖼️ No Arabic text found in this image.")
-                    continue
-
-                embed = build_embed("", translations, is_image=True)
-                await message.reply(embed=embed)
-            except Exception as e:
-                await message.reply(f"⚠️ Image error: {e}")
+            await message.reply(
+                "🖼️ Image detected! Currently I can only translate text.\n"
+                "Please **copy the Arabic text** from the image and send it as a message!"
+            )
 
     await bot.process_commands(message)
 
