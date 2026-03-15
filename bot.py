@@ -33,7 +33,7 @@ MODEL = "openrouter/auto"
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -250,7 +250,7 @@ async def translate_both_command(ctx, *, text=None):
     embed.set_footer(text="Powered by OpenRouter Llama 🦙")
     await ctx.reply(embed=embed)
 
-@bot.command(name="guide", aliases=["help", "h", "commands"])
+@bot.command(name="guide", aliases=["h", "commands"])
 async def guide(ctx):
     """Show full guide"""
     embed = discord.Embed(
