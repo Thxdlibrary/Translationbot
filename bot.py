@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import aiohttp
 import re
 import base64
+import asyncio
 from flask import Flask
 from threading import Thread
 
@@ -36,8 +37,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def contains_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-async def ask_gemini(prompt: str, image_bytes: bytes = None, mime_type: str = None) -> str:
-    """Send request to Gemini and return raw text response."""
+async def ask_gemini(prompt: str, image_bytes: bytes = None, mime_type: str = None, retries: int = 3) -> str:
+    """Send ONE request to Gemini with automatic retry on rate limit."""
     parts = []
 
     if image_bytes:
@@ -49,63 +50,69 @@ async def ask_gemini(prompt: str, image_bytes: bytes = None, mime_type: str = No
         })
 
     parts.append({"text": prompt})
-
     payload = {"contents": [{"parts": parts}]}
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-            json=payload
-        ) as resp:
-            data = await resp.json()
+    for attempt in range(retries):
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+                json=payload
+            ) as resp:
+                data = await resp.json()
 
-    # Log full response for debugging
-    print(f"Gemini response: {data}")
-
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        # Check for errors
+        # Check for rate limit error
         if "error" in data:
-            return f"API_ERROR: {data['error'].get('message', 'Unknown error')}"
-        return "FAILED"
+            error_msg = data["error"].get("message", "")
+            print(f"Gemini error (attempt {attempt+1}): {error_msg}")
+            if "quota" in error_msg.lower() or "rate" in error_msg.lower():
+                wait_time = 15 * (attempt + 1)  # wait 15s, 30s, 45s
+                print(f"Rate limited. Waiting {wait_time}s...")
+                await asyncio.sleep(wait_time)
+                continue
+            return f"ERROR: {error_msg}"
+
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            return "FAILED"
+
+    return "RATE_LIMIT"
 
 async def translate_text(arabic_text: str) -> dict:
-    """Translate Arabic text to Urdu and English."""
-    prompt = f"""Translate this Arabic text to Urdu and English.
+    """Translate Arabic text using ONE Gemini call."""
+    prompt = f"""Translate this Arabic text to both Urdu and English.
 
-Arabic: {arabic_text}
+Arabic text: {arabic_text}
 
-Reply in this exact format only:
-URDU: [urdu translation]
-ENGLISH: [english translation]"""
+Respond in EXACTLY this format:
+URDU: [urdu translation here]
+ENGLISH: [english translation here]"""
 
     response = await ask_gemini(prompt)
-    print(f"Translation response: {response}")
     return parse_response(response)
 
 async def translate_image(image_bytes: bytes, mime_type: str) -> dict:
-    """Extract Arabic from image and translate."""
-    prompt = """Look at this image. Extract any Arabic text you see, then translate it.
+    """Extract Arabic from image and translate using ONE Gemini call."""
+    prompt = """Extract any Arabic text from this image and translate it to Urdu and English.
 
-Reply in this exact format only:
+Respond in EXACTLY this format:
 ARABIC: [extracted arabic text, or NONE if no arabic found]
 URDU: [urdu translation, or NONE]
 ENGLISH: [english translation, or NONE]"""
 
     response = await ask_gemini(prompt, image_bytes, mime_type)
-    print(f"Image response: {response}")
     return parse_response(response, include_arabic=True)
 
 def parse_response(text: str, include_arabic: bool = False) -> dict:
-    """Parse Gemini response."""
+    """Parse Gemini response into structured dict."""
     result = {"urdu": "", "english": ""}
     if include_arabic:
         result["arabic"] = ""
 
-    if text.startswith("API_ERROR:") or text == "FAILED":
-        result["urdu"] = text
-        result["english"] = text
+    if text in ["FAILED", "RATE_LIMIT"] or text.startswith("ERROR:"):
+        msg = "⏳ Rate limit reached, please try again in 30 seconds." if text == "RATE_LIMIT" else text
+        result["urdu"] = msg
+        result["english"] = msg
         return result
 
     for line in text.strip().split('\n'):
@@ -117,10 +124,10 @@ def parse_response(text: str, include_arabic: bool = False) -> dict:
         elif line.upper().startswith("ENGLISH:"):
             result["english"] = line[8:].strip()
 
-    # If parsing failed, return full response as english
-    if not result["english"] and not result["urdu"]:
+    # Fallback if parsing fails
+    if not result["urdu"] and not result["english"]:
         result["english"] = text[:500]
-        result["urdu"] = "Could not parse response"
+        result["urdu"] = "Could not parse"
 
     return result
 
@@ -140,7 +147,7 @@ def build_embed(original: str, translations: dict, is_image: bool = False) -> di
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print(f"Gemini API Key loaded: {'✅' if GEMINI_API_KEY else '❌ MISSING'}")
+    print(f"Gemini API Key: {'✅ Loaded' if GEMINI_API_KEY else '❌ MISSING'}")
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -167,7 +174,7 @@ async def on_message(message: discord.Message):
                 translations = await translate_image(image_bytes, attachment.content_type)
                 await message.remove_reaction("⏳", bot.user)
 
-                if translations.get("arabic") == "NONE":
+                if translations.get("arabic", "").upper() == "NONE":
                     await message.reply("🖼️ No Arabic text found in this image.")
                     continue
 
