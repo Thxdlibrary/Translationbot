@@ -277,4 +277,7 @@ async def ping(ctx):
     await ctx.reply(f"🏓 Pong! Latency: {round(bot.latency * 1000)}ms")
 
 if __name__ == "__main__":
+    import time
+    print("⏳ Waiting 5 seconds before connecting...")
+    time.sleep(5)
     bot.run(TOKEN)
