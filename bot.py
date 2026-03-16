@@ -25,6 +25,7 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+PROXY_URL = os.getenv("PROXY_URL")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
@@ -33,7 +34,7 @@ MODEL = "openrouter/auto"
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None, proxy=PROXY_URL)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
