@@ -126,10 +126,14 @@ async def extract_arabic_from_image(image_bytes, mime_type):
     for model in VISION_MODELS:
         print(f"Trying vision model: {model}")
         result = await call_openrouter(messages, model)
+        print(f"Raw result from {model}: '{str(result)[:200]}'")
         if result and result.strip().upper() != "NONE" and result.strip():
             print(f"✅ OCR succeeded with: {model}")
             return result.strip()
+        else:
+            print(f"❌ Model {model} returned empty or NONE")
 
+    print("❌ All vision models failed")
     return ""
 
 async def translate_text(arabic_text, language="both"):
@@ -211,14 +215,12 @@ async def get_image_arabic(ctx):
         await ctx.reply("⚠️ Please attach a valid image.")
         return None
 
-    await ctx.message.add_reaction("⏳")
 
     async with aiohttp.ClientSession() as session:
         async with session.get(attachment.url) as resp:
             image_bytes = await resp.read()
 
     extracted = await extract_arabic_from_image(image_bytes, attachment.content_type)
-    await ctx.message.remove_reaction("⏳", bot.user)
 
     if not extracted or extracted.strip().upper() == "NONE":
         await ctx.reply("🖼️ No Arabic text found in this image.")
@@ -366,4 +368,8 @@ async def ping(ctx):
 if __name__ == "__main__":
     print("⏳ Waiting 5 seconds before connecting...")
     time.sleep(5)
-    bot.run(TOKEN)
+    bot.run(
+        TOKEN,
+        reconnect=True,        # auto reconnect on disconnect
+        log_handler=None       # reduce log noise
+    )
