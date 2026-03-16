@@ -30,11 +30,14 @@ PROXY_URL = os.getenv("PROXY_URL")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Vision models to try in order (best to fallback)
+# Vision models to try in order (best to fallback) - Updated March 2026
 VISION_MODELS = [
-    "google/gemini-2.0-flash-exp:free",
+    "qwen/qwen2.5-vl-72b-instruct:free",
+    "qwen/qwen2.5-vl-32b-instruct:free",
+    "google/gemma-3-27b-it:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
     "meta-llama/llama-3.2-11b-vision-instruct:free",
-    "qwen/qwen2-vl-7b-instruct:free",
+    "google/gemma-3-12b-it:free",
 ]
 
 # Translation model
