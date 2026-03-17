@@ -1,4 +1,4 @@
-# v3.0 - Full OpenRouter (OCR + Translation)
+# v4.0 - Full OpenRouter (OCR + Translation) - Best Free Vision Models
 import discord
 from discord.ext import commands
 import os
@@ -30,14 +30,16 @@ PROXY_URL = os.getenv("PROXY_URL")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Vision models to try in order (best to fallback) - Updated March 2026
+# Best free vision models for Arabic OCR - ordered by OCR capability
 VISION_MODELS = [
-    "qwen/qwen2.5-vl-72b-instruct:free",
-    "qwen/qwen2.5-vl-32b-instruct:free",
-    "moonshotai/kimi-vl-a3b-thinking:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
-    "meta-llama/llama-3.2-11b-vision-instruct:free",
-    "qwen/qwen2-vl-7b-instruct:free",
+    "qwen/qwen2.5-vl-72b-instruct:free",       # Best Arabic OCR
+    "qwen/qwen2.5-vl-32b-instruct:free",        # Very good
+    "meta-llama/llama-4-maverick:free",          # Excellent vision
+    "meta-llama/llama-4-scout:free",             # Good vision
+    "moonshotai/kimi-vl-a3b-thinking:free",      # Good reasoning
+    "mistralai/mistral-small-3.1-24b-instruct:free",  # Supports Arabic
+    "qwen/qwen2.5-vl-3b-instruct:free",         # Lightweight fallback
+    "qwen/qwen2-vl-7b-instruct:free",           # Last resort
 ]
 
 # Translation model
@@ -58,8 +60,8 @@ bot = commands.Bot(
 def contains_arabic(text):
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-async def call_openrouter(messages, model, retries=3):
-    """Generic OpenRouter API call with retry."""
+async def call_openrouter(messages, model, retries=2):
+    """Generic OpenRouter API call."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -78,7 +80,8 @@ async def call_openrouter(messages, model, retries=3):
                 async with session.post(
                     OPENROUTER_URL,
                     headers=headers,
-                    json=payload
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
                     data = await resp.json()
 
@@ -91,17 +94,18 @@ async def call_openrouter(messages, model, retries=3):
                 return None
 
             content = data["choices"][0]["message"]["content"]
-            print(f"✅ Model {model} responded successfully")
-            return content
+            if content and content.strip():
+                return content.strip()
+            return None
 
         except Exception as e:
             print(f"Exception [{model}] (attempt {attempt+1}): {e}")
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
 
     return None
 
 async def extract_arabic_from_image(image_bytes, mime_type):
-    """Try multiple vision models until one works."""
+    """Try multiple free vision models for Arabic OCR."""
     image_b64 = base64.b64encode(image_bytes).decode('utf-8')
 
     messages = [
@@ -116,28 +120,36 @@ async def extract_arabic_from_image(image_bytes, mime_type):
                 },
                 {
                     "type": "text",
-                    "text": "This image contains Arabic text from a scanned book or document. Please carefully extract ALL the Arabic text you can see, including any highlighted or bold text. Return ONLY the extracted Arabic text exactly as written, preserving the original text. If absolutely no Arabic text is found, return: NONE"
+                    "text": """This image contains Arabic text from a scanned Islamic book or document.
+Your task is to extract ALL Arabic text visible in the image.
+- Extract every Arabic word and sentence you can see
+- Include highlighted or bold text
+- Preserve the original Arabic text exactly
+- Do NOT translate anything
+- Return ONLY the Arabic text, nothing else
+- If you cannot find any Arabic text, return: NONE"""
                 }
             ]
         }
     ]
 
-    # Try each vision model until one succeeds
     for model in VISION_MODELS:
         print(f"Trying vision model: {model}")
         result = await call_openrouter(messages, model)
-        print(f"Raw result from {model}: '{str(result)[:200]}'")
-        if result and result.strip().upper() != "NONE" and result.strip():
-            print(f"✅ OCR succeeded with: {model}")
-            return result.strip()
+        if result:
+            cleaned = result.strip()
+            if cleaned and cleaned.upper() != "NONE" and contains_arabic(cleaned):
+                print(f"✅ OCR succeeded with: {model}")
+                return cleaned
+            print(f"❌ Model {model} returned: {cleaned[:50] if cleaned else 'empty'}")
         else:
-            print(f"❌ Model {model} returned empty or NONE")
+            print(f"❌ Model {model} failed completely")
 
     print("❌ All vision models failed")
     return ""
 
 async def translate_text(arabic_text, language="both"):
-    """Translate Arabic text using OpenRouter auto model."""
+    """Translate Arabic text using OpenRouter."""
     if language == "urdu":
         prompt = f"""Translate the COMPLETE Arabic text below to Urdu.
 Do not skip or truncate any part. Return ONLY the Urdu translation.
@@ -164,12 +176,9 @@ ENGLISH: [complete english translation]"""
     messages = [
         {
             "role": "system",
-            "content": "You are a professional Arabic translator. Translate accurately and completely without skipping any text."
+            "content": "You are a professional Arabic translator. Translate accurately and completely."
         },
-        {
-            "role": "user",
-            "content": prompt
-        }
+        {"role": "user", "content": prompt}
     ]
 
     response = await call_openrouter(messages, TRANSLATION_MODEL)
@@ -178,9 +187,9 @@ ENGLISH: [complete english translation]"""
         return {"urdu": "Translation failed", "english": "Translation failed"}
 
     if language == "urdu":
-        return {"urdu": response.strip(), "english": ""}
+        return {"urdu": response, "english": ""}
     elif language == "english":
-        return {"urdu": "", "english": response.strip()}
+        return {"urdu": "", "english": response}
     else:
         return parse_both(response)
 
@@ -215,15 +224,15 @@ async def get_image_arabic(ctx):
         await ctx.reply("⚠️ Please attach a valid image.")
         return None
 
-
     async with aiohttp.ClientSession() as session:
         async with session.get(attachment.url) as resp:
             image_bytes = await resp.read()
 
+    await ctx.reply("🔍 Extracting Arabic text from image, please wait...")
     extracted = await extract_arabic_from_image(image_bytes, attachment.content_type)
 
-    if not extracted or extracted.strip().upper() == "NONE":
-        await ctx.reply("🖼️ No Arabic text found in this image.")
+    if not extracted:
+        await ctx.reply("🖼️ Could not extract Arabic text from this image. Try a clearer/higher resolution image.")
         return None
 
     return extracted
@@ -234,8 +243,7 @@ async def get_image_arabic(ctx):
 async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"OpenRouter: {'✅' if OPENROUTER_API_KEY else '❌ MISSING'}")
-    print(f"Proxy: {'✅ Enabled' if PROXY_URL else '❌ Not set'}")
-    print(f"Vision models: {VISION_MODELS}")
+    print(f"Vision models: {len(VISION_MODELS)} models available")
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
@@ -348,16 +356,16 @@ async def guide(ctx):
         color=0x00f3ff
     )
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━", value="**📝 TEXT TRANSLATION**", inline=False)
-    embed.add_field(name="🇵🇰 Urdu only", value="`!urdu <arabic text>`\n`!u <arabic text>`\nExample: `!urdu مرحبا`", inline=False)
-    embed.add_field(name="🇬🇧 English only", value="`!english <arabic text>`\n`!e <arabic text>`\nExample: `!english مرحبا`", inline=False)
-    embed.add_field(name="🌐 Both Urdu + English", value="`!translate <arabic text>`\n`!t <arabic text>`\nExample: `!translate مرحبا`", inline=False)
+    embed.add_field(name="🇵🇰 Urdu only", value="`!urdu <arabic text>`\n`!u <arabic text>`", inline=False)
+    embed.add_field(name="🇬🇧 English only", value="`!english <arabic text>`\n`!e <arabic text>`", inline=False)
+    embed.add_field(name="🌐 Both Urdu + English", value="`!translate <arabic text>`\n`!t <arabic text>`", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━", value="**🖼️ IMAGE TRANSLATION**", inline=False)
-    embed.add_field(name="🇵🇰 Image → Urdu only", value="Attach image + type `!urdu` or `!u`", inline=False)
-    embed.add_field(name="🇬🇧 Image → English only", value="Attach image + type `!english` or `!e`", inline=False)
-    embed.add_field(name="🌐 Image → Both", value="Attach image + type `!translate` or `!t`", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━", value="**⚙️ OTHER COMMANDS**", inline=False)
-    embed.add_field(name="🏓 Check Status", value="`!ping`", inline=False)
-    embed.add_field(name="📖 Show Guide", value="`!guide` or `!h`", inline=False)
+    embed.add_field(name="🇵🇰 Image → Urdu", value="Attach image + `!urdu` or `!u`", inline=False)
+    embed.add_field(name="🇬🇧 Image → English", value="Attach image + `!english` or `!e`", inline=False)
+    embed.add_field(name="🌐 Image → Both", value="Attach image + `!translate` or `!t`", inline=False)
+    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━", value="**⚙️ OTHER**", inline=False)
+    embed.add_field(name="🏓 Status", value="`!ping`", inline=False)
+    embed.add_field(name="📖 Guide", value="`!guide` or `!h`", inline=False)
     embed.set_footer(text="Powered by OpenRouter 🦙")
     await ctx.reply(embed=embed)
 
@@ -368,8 +376,4 @@ async def ping(ctx):
 if __name__ == "__main__":
     print("⏳ Waiting 5 seconds before connecting...")
     time.sleep(5)
-    bot.run(
-        TOKEN,
-        reconnect=True,        # auto reconnect on disconnect
-        log_handler=None       # reduce log noise
-    )
+    bot.run(TOKEN, reconnect=True, log_handler=None)
