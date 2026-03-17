@@ -30,16 +30,16 @@ PROXY_URL = os.getenv("PROXY_URL")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Best free vision models for Arabic OCR - ordered by OCR capability
+# Best free vision models for Arabic OCR - Updated March 2026
 VISION_MODELS = [
-    "qwen/qwen2.5-vl-72b-instruct:free",       # Best Arabic OCR
-    "qwen/qwen2.5-vl-32b-instruct:free",        # Very good
-    "meta-llama/llama-4-maverick:free",          # Excellent vision
-    "meta-llama/llama-4-scout:free",             # Good vision
-    "moonshotai/kimi-vl-a3b-thinking:free",      # Good reasoning
-    "mistralai/mistral-small-3.1-24b-instruct:free",  # Supports Arabic
-    "qwen/qwen2.5-vl-3b-instruct:free",         # Lightweight fallback
-    "qwen/qwen2-vl-7b-instruct:free",           # Last resort
+    "openrouter/healer-alpha",                          # Best - OpenRouter's own vision model
+    "nvidia/llama-3.2-nemotron-nano-vl-8b-v1:free",   # Best for OCR - trained specifically for OCR
+    "qwen/qwen2.5-vl-72b-instruct:free",               # Best Arabic OCR
+    "qwen/qwen2.5-vl-32b-instruct:free",               # Very good
+    "meta-llama/llama-4-maverick:free",                 # Excellent vision
+    "meta-llama/llama-4-scout:free",                    # Good vision
+    "moonshotai/kimi-vl-a3b-thinking:free",             # Good reasoning
+    "mistralai/mistral-small-3.1-24b-instruct:free",   # Arabic support
 ]
 
 # Translation model
