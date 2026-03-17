@@ -30,6 +30,12 @@ PROXY_URL = os.getenv("PROXY_URL")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# ── Allowed Servers Whitelist ─────────────────────────────────────────────────
+# Add server IDs you want the bot to work in
+# Leave empty [] to allow ALL servers
+# To get server ID: Right click server → Copy Server ID
+ALLOWED_SERVERS = []  # Example: [123456789, 987654321]
+
 # Best free vision models for Arabic OCR - Updated March 2026
 VISION_MODELS = [
     "openrouter/healer-alpha",                          # Best - OpenRouter's own vision model
@@ -44,6 +50,38 @@ VISION_MODELS = [
 
 # Translation model
 TRANSLATION_MODEL = "openrouter/auto"
+
+# ── Server Whitelist ──────────────────────────────────────────────────────────
+# Add allowed server IDs here. Leave empty to allow ALL servers.
+# To get server ID: Right click server name → Copy Server ID
+ALLOWED_SERVERS = [
+    # 123456789012345678,  # Example: My Server
+    # 987654321098765432,  # Example: Friend's Server
+]
+
+# ── Server Whitelist ──────────────────────────────────────────────────────────
+# Add server IDs you want to ALLOW. Leave empty to allow ALL servers.
+# To get server ID: Right click server name → Copy Server ID
+ALLOWED_SERVERS = [
+    # Add your server IDs here like:
+    # 123456789012345678,
+    # 987654321098765432,
+]
+
+# ── Server Whitelist ──────────────────────────────────────────────────────────
+# Add allowed server IDs here. Leave empty to allow ALL servers.
+# To get server ID: Right click server → Copy Server ID
+ALLOWED_SERVERS = [
+    # 123456789012345678,  # Example: My Server
+    # 987654321098765432,  # Example: Friend's Server
+]
+
+# ── Server Whitelist ──────────────────────────────────────────────────────────
+# Add server IDs you want to ALLOW
+# Leave empty [] to allow ALL servers
+# Example: ALLOWED_SERVERS = [123456789, 987654321]
+ALLOWED_SERVERS_ENV = os.getenv("ALLOWED_SERVERS", "")
+ALLOWED_SERVERS = [int(x.strip()) for x in ALLOWED_SERVERS_ENV.split(",") if x.strip().isdigit()]
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -239,17 +277,100 @@ async def get_image_arabic(ctx):
 
 # ── Events ───────────────────────────────────────────────────────────────────
 
+async def is_allowed_server(guild_id):
+    """Check if server is allowed to use the bot."""
+    if not ALLOWED_SERVERS:
+        return True  # Allow all if no whitelist set
+    return guild_id in ALLOWED_SERVERS
+
+@bot.event
+async def on_guild_join(guild):
+    """Auto-leave unauthorized servers."""
+    if ALLOWED_SERVERS and guild.id not in ALLOWED_SERVERS:
+        print(f"❌ Leaving unauthorized server: {guild.name} ({guild.id})")
+        await guild.leave()
+
+def is_allowed_server(guild_id):
+    """Check if server is allowed to use the bot."""
+    if not ALLOWED_SERVERS:  # if empty, allow all
+        return True
+    return guild_id in ALLOWED_SERVERS
+
+def is_allowed_server(ctx):
+    """Check if command is from an allowed server."""
+    if not ALLOWED_SERVERS:
+        return True  # Allow all servers if whitelist is empty
+    return ctx.guild and ctx.guild.id in ALLOWED_SERVERS
+
+def is_allowed_server(ctx):
+    """Check if command is from an allowed server."""
+    if not ALLOWED_SERVERS:
+        return True  # Allow all if whitelist is empty
+    return ctx.guild and ctx.guild.id in ALLOWED_SERVERS
+
+def is_allowed_server():
+    """Check if command is being used in an allowed server."""
+    async def predicate(ctx):
+        if not ALLOWED_SERVERS:
+            return True  # Allow all servers if whitelist is empty
+        if ctx.guild and ctx.guild.id in ALLOWED_SERVERS:
+            return True
+        await ctx.reply("⛔ This bot is not authorized for this server.")
+        return False
+    return commands.check(predicate)
+
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"OpenRouter: {'✅' if OPENROUTER_API_KEY else '❌ MISSING'}")
     print(f"Vision models: {len(VISION_MODELS)} models available")
+    if ALLOWED_SERVERS:
+        print(f"✅ Whitelist active: {ALLOWED_SERVERS}")
+    else:
+        print("⚠️ No whitelist — all servers allowed")
+    if ALLOWED_SERVERS:
+        print(f"🔒 Restricted to servers: {ALLOWED_SERVERS}")
+    else:
+        print(f"🌐 Open to all servers")
+    
+    # Auto-leave unauthorized servers
+    for guild in bot.guilds:
+        if ALLOWED_SERVERS and guild.id not in ALLOWED_SERVERS:
+            print(f"⛔ Leaving unauthorized server: {guild.name} ({guild.id})")
+            await guild.leave()
+    if ALLOWED_SERVERS:
+        print(f"🔒 Whitelisted servers: {ALLOWED_SERVERS}")
+    else:
+        print(f"🌐 No whitelist — all servers allowed")
+    if ALLOWED_SERVERS:
+        print(f"Allowed servers: {ALLOWED_SERVERS}")
+    else:
+        print("Allowed servers: ALL")
+
+@bot.event
+async def on_guild_join(guild):
+    """Auto-leave if server is not whitelisted."""
+    if ALLOWED_SERVERS and guild.id not in ALLOWED_SERVERS:
+        print(f"❌ Leaving unauthorized server: {guild.name} ({guild.id})")
+        await guild.leave()
+    if ALLOWED_SERVERS:
+        print(f"🔒 Whitelist active: {ALLOWED_SERVERS}")
+    else:
+        print("🌐 No whitelist — all servers allowed")
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
+@is_allowed_server()
 @bot.command(name="urdu", aliases=["u", "ur"])
 async def translate_urdu(ctx, *, text=None):
+    if not is_allowed_server(ctx):
+        await ctx.reply("⛔ This bot is not authorized for this server.")
+        return
     """Translate Arabic to Urdu only"""
+    if not is_allowed_server(ctx.guild.id):
+        await ctx.reply("⛔ This bot is not authorized for this server.")
+        return
+
     if ctx.message.attachments:
         arabic = await get_image_arabic(ctx)
         if not arabic:
@@ -277,8 +398,12 @@ async def translate_urdu(ctx, *, text=None):
     embed.set_footer(text="Powered by OpenRouter 🦙")
     await ctx.reply(embed=embed)
 
+@is_allowed_server()
 @bot.command(name="english", aliases=["e", "en"])
 async def translate_english(ctx, *, text=None):
+    if not is_allowed_server(ctx):
+        await ctx.reply("⛔ This bot is not authorized for this server.")
+        return
     """Translate Arabic to English only"""
     if ctx.message.attachments:
         arabic = await get_image_arabic(ctx)
@@ -307,8 +432,12 @@ async def translate_english(ctx, *, text=None):
     embed.set_footer(text="Powered by OpenRouter 🦙")
     await ctx.reply(embed=embed)
 
+@is_allowed_server()
 @bot.command(name="translate", aliases=["t", "tr", "both", "b"])
 async def translate_both_command(ctx, *, text=None):
+    if not is_allowed_server(ctx):
+        await ctx.reply("⛔ This bot is not authorized for this server.")
+        return
     """Translate Arabic to both Urdu and English"""
     if ctx.message.attachments:
         arabic = await get_image_arabic(ctx)
@@ -347,6 +476,16 @@ async def translate_both_command(ctx, *, text=None):
     embed.set_footer(text="Powered by OpenRouter 🦙")
     await ctx.reply(embed=embed)
 
+@bot.check
+async def whitelist_check(ctx):
+    """Global check — block commands in unauthorized servers."""
+    if not ALLOWED_SERVERS:
+        return True
+    if ctx.guild and ctx.guild.id not in ALLOWED_SERVERS:
+        await ctx.reply("⛔ This bot is not authorized for this server.")
+        return False
+    return True
+
 @bot.command(name="guide", aliases=["h", "commands"])
 async def guide(ctx):
     """Show full guide"""
@@ -372,6 +511,168 @@ async def guide(ctx):
 @bot.command(name="ping")
 async def ping(ctx):
     await ctx.reply(f"🏓 Pong! Latency: {round(bot.latency * 1000)}ms")
+
+@bot.command(name="servers")
+@commands.is_owner()
+async def servers(ctx):
+    """Show all servers the bot is in (owner only)"""
+    guilds = bot.guilds
+    if not guilds:
+        await ctx.reply("Bot is not in any servers!")
+        return
+
+    embed = discord.Embed(
+        title=f"🌐 Servers ({len(guilds)} total)",
+        color=0x00f3ff
+    )
+    for guild in guilds:
+        embed.add_field(
+            name=guild.name,
+            value=f"👥 Members: {guild.member_count}\n🆔 ID: {guild.id}",
+            inline=False
+        )
+    embed.set_footer(text="Only visible to bot owner")
+    await ctx.reply(embed=embed)
+
+@servers.error
+async def servers_error(ctx, error):
+    if isinstance(error, commands.NotOwner):
+        await ctx.reply("⛔ This command is only for the bot owner!")
+
+@bot.command(name="servers")
+async def servers(ctx):
+    """Show all servers the bot is in — owner only"""
+    # Only bot owner can use this command
+    app_info = await bot.application_info()
+    if ctx.author.id != app_info.owner.id:
+        await ctx.reply("⚠️ This command is only available to the bot owner.")
+        return
+
+    guilds = bot.guilds
+    embed = discord.Embed(
+        title=f"🌐 Bot is in {len(guilds)} server(s)",
+        color=0x00f3ff
+    )
+    for guild in guilds:
+        embed.add_field(
+            name=guild.name,
+            value=f"👥 Members: {guild.member_count}\n🆔 ID: {guild.id}",
+            inline=False
+        )
+    embed.set_footer(text=f"Total servers: {len(guilds)}")
+    await ctx.reply(embed=embed)
+
+@bot.command(name="servers")
+async def servers(ctx):
+    """Show all servers the bot is in — owner only"""
+    owner_id = os.getenv("OWNER_ID", "")
+    if str(ctx.author.id) != owner_id:
+        await ctx.reply("Only the bot owner can use this command!")
+        return
+
+    guilds = bot.guilds
+    embed = discord.Embed(
+        title="Bot Servers — " + str(len(guilds)) + " total",
+        color=0x00f3ff
+    )
+    for guild in guilds:
+        embed.add_field(
+            name=guild.name,
+            value="Members: " + str(guild.member_count) + " | ID: " + str(guild.id),
+            inline=False
+        )
+    await ctx.reply(embed=embed)
+
+@bot.command(name="servers")
+async def servers(ctx):
+    """Show all servers the bot is in — owner only"""
+    # Only you can use this command
+    if ctx.author.id != ctx.guild.owner_id and str(ctx.author.id) != os.getenv("OWNER_ID"):
+        await ctx.reply("⚠️ Only the bot owner can use this command!")
+        return
+
+    guilds = bot.guilds
+    embed = discord.Embed(
+        title=f"🌐 Bot is in {len(guilds)} server(s)",
+        color=0x00f3ff
+    )
+    for guild in guilds:
+        embed.add_field(
+            name=guild.name,
+            value="Members: " + str(guild.member_count) + " | ID: " + str(guild.id),
+            inline=False
+        )
+    embed.set_footer(text=f"Total servers: {len(guilds)}")
+    await ctx.reply(embed=embed)
+
+@bot.command(name="servers")
+async def servers(ctx):
+    """Show all servers the bot is in — owner only"""
+    # Only bot owner can use this command
+    app_info = await bot.application_info()
+    if ctx.author.id != app_info.owner.id:
+        await ctx.reply("⚠️ This command is only for the bot owner!")
+        return
+
+    guilds = bot.guilds
+    if not guilds:
+        await ctx.reply("Bot is not in any servers!")
+        return
+
+    embed = discord.Embed(
+        title=f"🌐 Bot is in {len(guilds)} server(s)",
+        color=0x00f3ff
+    )
+
+    for guild in guilds:
+        embed.add_field(
+            name=guild.name,
+            value=f"👥 Members: {guild.member_count}\n🆔 ID: {guild.id}",
+            inline=False
+        )
+
+    embed.set_footer(text=f"Total servers: {len(guilds)}")
+    await ctx.reply(embed=embed)
+
+@bot.command(name="stats")
+async def stats(ctx):
+    """Show bot statistics — owner only"""
+    app_info = await bot.application_info()
+    if ctx.author.id != app_info.owner.id:
+        await ctx.reply("⚠️ This command is only for the bot owner!")
+        return
+
+    total_members = sum(g.member_count for g in bot.guilds)
+
+    embed = discord.Embed(title="📊 Bot Statistics", color=0x00f3ff)
+    embed.add_field(name="🌐 Servers", value=str(len(bot.guilds)), inline=True)
+    embed.add_field(name="👥 Total Members", value=str(total_members), inline=True)
+    embed.add_field(name="🏓 Latency", value=f"{round(bot.latency * 1000)}ms", inline=True)
+    embed.set_footer(text="Arabic Translation Bot")
+    await ctx.reply(embed=embed)
+
+@bot.event
+async def on_guild_join(guild):
+    """Auto-leave if server is not in whitelist."""
+    if ALLOWED_SERVERS and guild.id not in ALLOWED_SERVERS:
+        print(f"⛔ Leaving unauthorized server: {guild.name} ({guild.id})")
+        try:
+            await guild.system_channel.send(
+                "⛔ This bot is restricted to specific servers only. Leaving now."
+            )
+        except:
+            pass
+        await guild.leave()
+
+@bot.check
+async def global_server_check(ctx):
+    """Global check — block commands from unauthorized servers."""
+    if not ALLOWED_SERVERS:
+        return True  # Allow all servers if whitelist is empty
+    if ctx.guild and ctx.guild.id in ALLOWED_SERVERS:
+        return True
+    await ctx.reply("⛔ This bot is not authorized for this server.")
+    return False
 
 if __name__ == "__main__":
     print("⏳ Waiting 5 seconds before connecting...")
