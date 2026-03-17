@@ -297,9 +297,9 @@ async def translate_urdu(ctx, *, text=None):
             return
         async with ctx.typing():
             translations = await translate_text(arabic, "urdu")
-        embed = discord.Embed(title="🇵🇰 Urdu Translation", color=0x00f3ff)
+        embed = discord.Embed(title="🖋️ Urdu Translation", color=0x00f3ff)
         add_long_field(embed, "📝 Original Arabic", arabic)
-        add_long_field(embed, "🇵🇰 Urdu", translations["urdu"])
+        add_long_field(embed, "🖋️ Urdu", translations["urdu"])
         embed.set_footer(text="Powered by OpenRouter 🦙")
         await ctx.reply(embed=embed)
         return
@@ -312,9 +312,9 @@ async def translate_urdu(ctx, *, text=None):
         return
     async with ctx.typing():
         translations = await translate_text(text, "urdu")
-    embed = discord.Embed(title="🇵🇰 Urdu Translation", color=0x00f3ff)
+    embed = discord.Embed(title="🖋️ Urdu Translation", color=0x00f3ff)
     add_long_field(embed, "📝 Original Arabic", text)
-    add_long_field(embed, "🇵🇰 Urdu", translations["urdu"])
+    add_long_field(embed, "🖋️ Urdu", translations["urdu"])
     embed.set_footer(text="Powered by OpenRouter 🦙")
     await ctx.reply(embed=embed)
 
@@ -327,9 +327,9 @@ async def translate_english(ctx, *, text=None):
             return
         async with ctx.typing():
             translations = await translate_text(arabic, "english")
-        embed = discord.Embed(title="🇬🇧 English Translation", color=0x00f3ff)
+        embed = discord.Embed(title="✒️ English Translation", color=0x00f3ff)
         add_long_field(embed, "📝 Original Arabic", arabic)
-        add_long_field(embed, "🇬🇧 English", translations["english"])
+        add_long_field(embed, "✒️ English", translations["english"])
         embed.set_footer(text="Powered by OpenRouter 🦙")
         await ctx.reply(embed=embed)
         return
@@ -342,9 +342,9 @@ async def translate_english(ctx, *, text=None):
         return
     async with ctx.typing():
         translations = await translate_text(text, "english")
-    embed = discord.Embed(title="🇬🇧 English Translation", color=0x00f3ff)
+    embed = discord.Embed(title="✒️ English Translation", color=0x00f3ff)
     add_long_field(embed, "📝 Original Arabic", text)
-    add_long_field(embed, "🇬🇧 English", translations["english"])
+    add_long_field(embed, "✒️ English", translations["english"])
     embed.set_footer(text="Powered by OpenRouter 🦙")
     await ctx.reply(embed=embed)
 
@@ -359,8 +359,8 @@ async def translate_both_command(ctx, *, text=None):
             translations = await translate_text(arabic, "both")
         embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
         add_long_field(embed, "📝 Original Arabic", arabic)
-        add_long_field(embed, "🇵🇰 Urdu", translations["urdu"])
-        add_long_field(embed, "🇬🇧 English", translations["english"])
+        add_long_field(embed, "🖋️ Urdu", translations["urdu"])
+        add_long_field(embed, "✒️ English", translations["english"])
         embed.set_footer(text="Powered by OpenRouter 🦙")
         await ctx.reply(embed=embed)
         return
@@ -383,8 +383,8 @@ async def translate_both_command(ctx, *, text=None):
         translations = await translate_text(text, "both")
     embed = discord.Embed(title="🌐 Arabic Translation", color=0x00f3ff)
     add_long_field(embed, "📝 Original Arabic", text)
-    add_long_field(embed, "🇵🇰 Urdu", translations["urdu"])
-    add_long_field(embed, "🇬🇧 English", translations["english"])
+    add_long_field(embed, "🖋️ Urdu", translations["urdu"])
+    add_long_field(embed, "✒️ English", translations["english"])
     embed.set_footer(text="Powered by OpenRouter 🦙")
     await ctx.reply(embed=embed)
 
@@ -397,12 +397,12 @@ async def guide(ctx):
         color=0x00f3ff
     )
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━", value="**📝 TEXT TRANSLATION**", inline=False)
-    embed.add_field(name="🇵🇰 Urdu only", value="`!urdu <arabic text>`\n`!u <arabic text>`", inline=False)
-    embed.add_field(name="🇬🇧 English only", value="`!english <arabic text>`\n`!e <arabic text>`", inline=False)
+    embed.add_field(name="🖋️ Urdu only", value="`!urdu <arabic text>`\n`!u <arabic text>`", inline=False)
+    embed.add_field(name="✒️ English only", value="`!english <arabic text>`\n`!e <arabic text>`", inline=False)
     embed.add_field(name="🌐 Both Urdu + English", value="`!translate <arabic text>`\n`!t <arabic text>`", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━", value="**🖼️ IMAGE TRANSLATION**", inline=False)
-    embed.add_field(name="🇵🇰 Image → Urdu", value="Attach image + `!urdu` or `!u`", inline=False)
-    embed.add_field(name="🇬🇧 Image → English", value="Attach image + `!english` or `!e`", inline=False)
+    embed.add_field(name="🖋️ Image → Urdu", value="Attach image + `!urdu` or `!u`", inline=False)
+    embed.add_field(name="✒️ Image → English", value="Attach image + `!english` or `!e`", inline=False)
     embed.add_field(name="🌐 Image → Both", value="Attach image + `!translate` or `!t`", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━", value="**⚙️ OTHER**", inline=False)
     embed.add_field(name="🏓 Status", value="`!ping`", inline=False)
