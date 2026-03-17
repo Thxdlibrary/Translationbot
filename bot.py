@@ -302,22 +302,15 @@ async def global_server_check(ctx):
     if has_council:
         return True
 
-    # ✅ Library Pass → ONLY in FORUM channel
- if has_library and (
-    ctx.channel.id == FORUM_CHANNEL_ID or 
-    getattr(ctx.channel, "parent_id", None) == FORUM_CHANNEL_ID
-):
-    return True
+    # ✅ Library Pass → ONLY in forum (including posts/threads)
+    if has_library and (
+        ctx.channel.id == FORUM_CHANNEL_ID or 
+        getattr(ctx.channel, "parent_id", None) == FORUM_CHANNEL_ID
+    ):
+        return True
 
-    # ❌ Optional upgrade: send permission message
+    # ❌ No permission
     await ctx.reply("❌ You don’t have permission to use this bot.")
-    return False
-    """Global check — block commands from unauthorized servers."""
-    if not ALLOWED_SERVERS:
-        return True
-    if ctx.guild and ctx.guild.id in ALLOWED_SERVERS:
-        return True
-    await ctx.reply("⛔ This bot is not authorized for this server.")
     return False
 
 # ── Commands ─────────────────────────────────────────────────────────────────
