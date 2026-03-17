@@ -303,8 +303,11 @@ async def global_server_check(ctx):
         return True
 
     # ✅ Library Pass → ONLY in FORUM channel
-    if ctx.channel.id == FORUM_CHANNEL_ID and has_library:
-        return True
+    if has_library and (
+    ctx.channel.id == FORUM_CHANNEL_ID or 
+    getattr(ctx.channel, "parent_id", None) == FORUM_CHANNEL_ID
+):
+    return True
 
     # ❌ Optional upgrade: send permission message
     await ctx.reply("❌ You don’t have permission to use this bot.")
