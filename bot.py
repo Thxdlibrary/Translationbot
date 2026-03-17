@@ -303,7 +303,7 @@ async def global_server_check(ctx):
         return True
 
     # ✅ Library Pass → ONLY in FORUM channel
-    if has_library and (
+ if has_library and (
     ctx.channel.id == FORUM_CHANNEL_ID or 
     getattr(ctx.channel, "parent_id", None) == FORUM_CHANNEL_ID
 ):
