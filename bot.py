@@ -274,10 +274,41 @@ async def on_guild_join(guild):
             pass
         await guild.leave()
 
+# 🔐 ────── Role & Channel Restrictions─────────────────────────────────────────────────
+
+FORUM_CHANNEL_ID = 1454131410913984563
+COUNCIL_ROLE_ID = 1447554384320794674
+LIBRARY_ROLE_ID = 1446118476711202919
+
 # ── Global Server Check ───────────────────────────────────────────────────────
+
+
 
 @bot.check
 async def global_server_check(ctx):
+    """Global check — role + channel restrictions + no DMs"""
+
+    # ❌ Ignore DMs completely
+    if not ctx.guild:
+        return False
+
+    member = ctx.author
+
+    # Role checks
+    has_council = any(role.id == COUNCIL_ROLE_ID for role in member.roles)
+    has_library = any(role.id == LIBRARY_ROLE_ID for role in member.roles)
+
+    # ✅ Council role → full access
+    if has_council:
+        return True
+
+    # ✅ Library Pass → ONLY in FORUM channel
+    if ctx.channel.id == FORUM_CHANNEL_ID and has_library:
+        return True
+
+    # ❌ Optional upgrade: send permission message
+    await ctx.reply("❌ You don’t have permission to use this bot.")
+    return False
     """Global check — block commands from unauthorized servers."""
     if not ALLOWED_SERVERS:
         return True
