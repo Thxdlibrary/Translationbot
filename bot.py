@@ -34,10 +34,10 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 VISION_MODELS = [
     "qwen/qwen2.5-vl-72b-instruct:free",
     "qwen/qwen2.5-vl-32b-instruct:free",
-    "google/gemma-3-27b-it:free",
+    "moonshotai/kimi-vl-a3b-thinking:free",
     "mistralai/mistral-small-3.1-24b-instruct:free",
     "meta-llama/llama-3.2-11b-vision-instruct:free",
-    "google/gemma-3-12b-it:free",
+    "qwen/qwen2-vl-7b-instruct:free",
 ]
 
 # Translation model
@@ -116,7 +116,7 @@ async def extract_arabic_from_image(image_bytes, mime_type):
                 },
                 {
                     "type": "text",
-                    "text": "Extract all Arabic text from this image exactly as written. Return ONLY the Arabic text, nothing else. If no Arabic text is found, return: NONE"
+                    "text": "This image contains Arabic text from a scanned book or document. Please carefully extract ALL the Arabic text you can see, including any highlighted or bold text. Return ONLY the extracted Arabic text exactly as written, preserving the original text. If absolutely no Arabic text is found, return: NONE"
                 }
             ]
         }
