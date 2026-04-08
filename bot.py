@@ -310,7 +310,7 @@ async def global_server_check(ctx):
         return True
 
     # ❌ No permission
-    await ctx.reply("❌ You don’t have permission to use this bot.")
+    await ctx.reply("❌ Muthkalim samajis are not allowed to use this bot[aukkat nhai hai tum nallo ki]")
     return False
 
 # ── Commands ─────────────────────────────────────────────────────────────────
